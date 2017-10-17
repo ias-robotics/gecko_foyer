@@ -1,0 +1,117 @@
+/* The following code is property of Woodside Technology Pty Ltd, with access
+ granted to Barking Gecko Theatre company for use in a foyer installation.
+ Not to be redistributed. */
+
+#include <ros/ros.h>
+#include <sensor_msgs/PointCloud2.h>
+#include <pcl_conversions/pcl_conversions.h>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include <pcl/filters/voxel_grid.h>
+
+//#define KINECT2
+
+#define SAMPLE_SIZE 0.01
+#define IDLE_TIME 100
+
+typedef pcl::PointXYZ PointType;
+
+#ifdef KINECT2
+
+//static char *default_input = "/kinect2/sd/image_depth";
+static char *default_input = "/kinect2/sd/points";
+static char *default_output = "/pcproxy/points/compressed";
+
+#else // ASUS
+
+#define IMG2PC
+static char *default_input = "/camera/depth/image_raw";
+//static char *default_input = "/camera/depth/points";
+static char *default_output = "/pcproxy/image_raw/compressed";
+
+#endif
+
+ros::Publisher pub;
+
+#ifdef IMG2PC
+void depth_image_cb(const sensor_msgs::Image::ConstPtr& image_msg) {
+  // Publish as it is
+  pub.publish(image_msg);
+
+  usleep(1000 * IDLE_TIME);
+}
+#else
+/*
+ * ROS callback function to capture live point cloud from depth sensor
+ */
+void cloud_cb(const sensor_msgs::PointCloud2ConstPtr& input)
+{
+#if 0
+  // Convert the sensor_msgs/PointCloud2 data to pcl/PointCloud
+  pcl::PointCloud<PointType>::Ptr scene(new pcl::PointCloud<PointType>());
+  pcl::fromROSMsg(*input, *scene);
+
+  // Down sampling
+  pcl::PointCloud<PointType> scene_sample; // reduced point cloud
+  pcl::VoxelGrid<PointType> us;
+  us.setInputCloud(scene);
+  us.setLeafSize(SAMPLE_SIZE, SAMPLE_SIZE, SAMPLE_SIZE);
+  us.filter(scene_sample);
+
+  // Convert the pcl/PointCloud to sensor_msgs/PointCloud2
+  sensor_msgs::PointCloud2 output;
+  pcl::toROSMsg(scene_sample, output);
+
+  // Publish the output
+  pub.publish(output);
+
+  usleep(1000 * IDLE_TIME);
+#else
+  // Publish the input as it is
+  pub.publish(input);
+#endif
+}
+#endif
+
+/*
+ * Code starts from here
+ */
+int main(int argc, char** argv)
+{
+  // Initialize ROS
+  ros::init(argc, argv, "point_cloud_proxy");
+  ros::NodeHandle nh;
+
+  char *input_pc;
+  if (argc > 1)
+    input_pc = argv[1];
+  else
+    input_pc = (char *)default_input;
+
+  char *output_pc;
+  if (argc > 2)
+    output_pc = argv[2];
+  else
+    output_pc = (char *)default_output;
+
+#ifdef IMG2PC
+  // Create a ROS subscriber for the input depth image
+  ros::Subscriber sub = nh.subscribe(input_pc, 1, depth_image_cb);
+
+  // Create a ROS publisher for the output depth image
+  pub = nh.advertise<sensor_msgs::Image> (output_pc, 1);
+#else
+  // Create a ROS subscriber for the input point cloud
+  ros::Subscriber sub = nh.subscribe(input_pc, 1, cloud_cb);
+
+  // Create a ROS publisher for the output point cloud
+  pub = nh.advertise<sensor_msgs::PointCloud2> (output_pc, 1);
+#endif
+
+  // Show input & output
+  std::cout << "[PCProxy] in: '" << input_pc
+      << "', out: '" << output_pc << "'" << std::endl;
+
+  // Process ROS events and messages forever
+  ros::spin();
+}

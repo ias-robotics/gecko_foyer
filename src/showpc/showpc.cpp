@@ -1,0 +1,215 @@
+/* The following code is property of Woodside Technology Pty Ltd, with access
+ granted to Barking Gecko Theatre company for use in a foyer installation in 
+ November 2017. Not to be redistributed. */
+
+#include <time.h>
+#include <ros/ros.h>
+#include <sensor_msgs/PointCloud2.h>
+#include <cv_bridge/cv_bridge.h>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include <pcl/io/pcd_io.h>
+#include <pcl/io/ply_io.h>
+#include <pcl/common/transforms.h>
+#include <pcl/filters/passthrough.h>
+#include <pcl/filters/voxel_grid.h>
+#include <pcl/visualization/pcl_visualizer.h>
+#include <pcl_conversions/pcl_conversions.h>
+
+#define USE_PROXY
+
+#define CLUSTERS (6 * 3 + 2)
+#define RANGE 0.1
+#define OFFSET 0.5
+
+typedef pcl::PointXYZ PointType;
+
+class ShowPointCloud {
+public:
+  /*
+   * Constructer: open visualisation window and initialize members
+   */
+  ShowPointCloud() :
+      move (false),
+      angle (270.0),
+      angleInc (3.0),
+      m_SamplingSize (0.005)
+  {
+    viewer = new pcl::visualization::PCLVisualizer("Show Point Cloud");
+    viewer->setSize(1920, 1080);
+    viewer->setShowFPS(false);
+    viewer->setCameraPosition(0.0f, 0.0f, -1.0f, 0.0f, -1.0f, 0.0f);
+    viewer->registerKeyboardCallback(&ShowPointCloud::keyboardCallback, *this);
+
+    cluster.resize(CLUSTERS);
+    for (int i = 0; i < CLUSTERS; i++) {
+      cluster[i] = (pcl::PointCloud<PointType>::Ptr)(new pcl::PointCloud<PointType>());
+    }
+  }
+
+  /*
+   * Destracter
+   */
+  ~ShowPointCloud() {
+  }
+
+  /*
+   * Keyboard handler to process key inputs on visualisation window
+   */
+  void keyboardCallback(const pcl::visualization::KeyboardEvent& event, void*)
+  {
+    int key;
+    if((key = event.getKeyCode()) && event.keyDown()) {
+      switch (key) {
+        case ' ':
+          move = move ? false: true;
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  /*
+   * Main function to generate point cloud to show
+   */
+  void show(pcl::PointCloud<PointType>::Ptr scene) {
+
+    clock_t clockStart = clock();
+
+    if (move) {
+      float deg2rad = 3.14159265358979f / 180.0f; // for degrees to radian conversion
+      float sin_ = sin(angle * deg2rad);
+      float cos_ = cos(angle * deg2rad);
+      viewer->setCameraPosition(2.0f * cos_, 0.0f, 2.0f * sin_ + 0.0f, 0.0f, -1.0f, 0.0f);
+      angle += angleInc;
+      if (angle >= 360.0 || angle <= 180.0) {
+        angleInc *= -1.0;
+      }
+    }
+
+    //
+    // Separate clusters by distance range
+    //
+    for (int i = 0; i < CLUSTERS; i++) {
+      float from = i == 0 ? 0.0: (float)(i - 1) * RANGE + OFFSET;
+      float to = i < CLUSTERS - 1 ? (float)(i) * RANGE + OFFSET: 10.0f;
+      pcl::PassThrough<PointType> ptf;
+      ptf.setInputCloud(scene);
+      ptf.setFilterFieldName("z");
+      ptf.setFilterLimits(from, to);
+      ptf.filter(*cluster[i]);
+    }
+
+    float timePast = (float)(clock() - clockStart) / CLOCKS_PER_SEC;
+//  std::cout << timePast << " sec" << std::endl;
+
+    viewer->removeAllPointClouds();
+
+    //
+    // Show clusters in different colors
+    //
+    for (int i = CLUSTERS - 1; i >= 0; i--) {
+      int c, l, r, g, b;
+      if (i == 0) {
+        r = 255; g = 255; b = 255;
+      }
+      else if (i == CLUSTERS - 1) {
+        r = 128; g = 128; b = 128;
+      }
+      else {
+        c = ((i - 1) % 6) + 1;
+        l = 3 - (((i - 1) / 6) & 3);
+        r = c & 4 ? 255: l * 64;
+        g = c & 2 ? 255: l * 64;
+        b = c & 1 ? 255: l * 64;
+      }
+      pcl::visualization::PointCloudColorHandlerCustom<PointType> cluster_color_handler(cluster[i], r, g, b);
+      std::stringstream ss;
+      ss << "cluster" << i;
+      viewer->addPointCloud(cluster[i], cluster_color_handler, ss.str());
+    }
+
+    for (int i = 0; i < 100; i++)
+      viewer->spinOnce();
+  }
+
+protected:
+  pcl::visualization::PCLVisualizer *viewer;
+  std::vector<pcl::PointCloud<PointType>::Ptr> cluster;
+  int move;
+  float angle;
+  float angleInc;
+  float m_SamplingSize;
+};
+
+ShowPointCloud spc;
+
+/*
+ * ROS callback function to capture live depth image frame
+ */
+void depth_image_cb(const sensor_msgs::Image::ConstPtr& image_msg) {
+  cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(image_msg);
+  cv::Mat decoded = cv_ptr->image;
+
+  pcl::PointCloud<PointType>::Ptr scene(new pcl::PointCloud<PointType>());
+  scene->height = decoded.rows;
+  scene->width = decoded.cols;
+  scene->is_dense = false;
+  scene->points.resize(scene->width * scene->height);
+
+  const float constant = 1.0f / 570;
+  const int centerX = scene->width >> 1;
+  const int centerY = scene->height >> 1;
+  register int depth_idx = 0;
+
+  for (int v = -centerY; v < centerY; ++v) {
+    for (register int u = -centerX; u < centerX; ++u, ++depth_idx) {
+      pcl::PointXYZ& pt = scene->points[depth_idx];
+      pt.z = decoded.at<unsigned short>(depth_idx) * 0.001f;
+      pt.x = static_cast<float>(u) * pt.z * constant;
+      pt.y = static_cast<float>(v) * pt.z * constant;
+    }
+  }
+  scene->sensor_origin_.setZero();
+  scene->sensor_orientation_.w() = 1.0f;
+  scene->sensor_orientation_.x() = 0.0f;
+  scene->sensor_orientation_.y() = 0.0f;
+  scene->sensor_orientation_.z() = 0.0f;
+
+  spc.show(scene);
+}
+
+/*
+ * ROS callback function to capture live point cloud from depth sensor
+ */
+void cloud_cb(const sensor_msgs::PointCloud2ConstPtr &cloud_msg) {
+  pcl::PointCloud<PointType> scene;
+  pcl::fromROSMsg(*cloud_msg, scene);
+  spc.show(scene.makeShared());
+}
+
+/*
+ * Code starts from here
+ */
+int main(int argc, char** argv) {
+  ros::init(argc, argv, "show_point_cloud");
+
+  ros::NodeHandle nh;
+#ifdef USE_PROXY
+  // Create a ROS subscriber for the input depth image frames
+  ros::Subscriber sub_img = nh.subscribe("/pcproxy/image_raw/compressed", 1, depth_image_cb);
+
+  // Create a ROS subscriber for the input point cloud
+  ros::Subscriber sub_pc = nh.subscribe("/pcproxy/points/compressed", 1, cloud_cb);
+#else
+  // Create a ROS subscriber for the input depth image frames
+  ros::Subscriber sub_img = nh.subscribe("/camera/depth/image_raw", 1, depth_image_cb);
+
+  // Create a ROS subscriber for the input point cloud
+  ros::Subscriber sub_pc = nh.subscribe("/camera/depth/points", 1, cloud_cb);
+#endif
+
+  // Process ROS events and messages forever
+  ros::spin();
+}
