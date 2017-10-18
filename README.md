@@ -42,7 +42,7 @@ $ catkin init
 
 ### Openni V1 ROS Driver for Kinect V1
 
-To install ([Original Instructions](blog.justsophie.com/installing-kinect-nite-drivers-on-ubunut-14-04-and-ros-indigo)):
+To install ([Original Instructions if you encounter any issues](blog.justsophie.com/installing-kinect-nite-drivers-on-ubunut-14-04-and-ros-indigo)):
 
 ```
 $ sudo apt-get install libopenni0 libopenni-dev
@@ -51,8 +51,6 @@ $ git clone https://github.com/ros-drivers/openni_launch.git
 $ git clone https://github.com/ros-drivers/openni_camera.git
 $ catkin build
 ```
-
-See above for the commands to run the driver.
 
 ## gecko_foyer
 
