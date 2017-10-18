@@ -41,7 +41,6 @@ $ catkin init
 ```
 
 ### Openni V1 ROS Driver for Kinect V1
-# Openni for Kinect V1 (Works)
 
 To install ([Original Instructions](blog.justsophie.com/installing-kinect-nite-drivers-on-ubunut-14-04-and-ros-indigo)):
 
