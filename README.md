@@ -40,6 +40,8 @@ $ mkdir src
 $ catkin init
 ```
 
+You should see a message stating that the workspace configuration is valid.
+
 ### Openni V1 ROS Driver for Kinect V1
 
 To install ([Original Instructions if you encounter any issues](blog.justsophie.com/installing-kinect-nite-drivers-on-ubunut-14-04-and-ros-indigo)):
@@ -59,3 +61,5 @@ $ cd ~/gecko_ws/src
 $ git clone https://github.com/wrobotics/gecko_foyer.git
 $ catkin build
 ```
+
+When catkin building this repository, you will get three warnings. These are expected, and do not affect the functionality of the code.
